@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rock Shield AI — Rockfall Early Warning System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg-void:#0A0C0E;
+    --bg-panel:#121417;
+    --bg-panel-raised:#1A1D21;
+    --line-contour: rgba(201,174,126,0.07);
+    --hairline: rgba(201,174,126,0.15);
+    --text-primary:#E8E4DA;
+    --text-muted:#8A9199;
+    --text-dim:#5C666D;
+    --accent-gold:#C9AE7E;
+    --risk-safe:#5B9279;
+    --risk-safe-glow: rgba(91,146,121,0.35);
+    --risk-watch:#D3A24B;
+    --risk-watch-glow: rgba(211,162,75,0.35);
+    --risk-high:#D97B3F;
+    --risk-high-glow: rgba(217,123,63,0.4);
+    --risk-critical:#C4483A;
+    --risk-critical-glow: rgba(196,72,58,0.45);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  html,body{
+    background: var(--bg-void);
+    color: var(--text-primary);
+    font-family:'Inter', sans-serif;
+    height:100%;
+    overflow:hidden;
+  }
+
+  body{
+    background-image:
+      radial-gradient(circle at 15% 20%, var(--line-contour) 0, transparent 45%),
+      radial-gradient(circle at 85% 75%, var(--line-contour) 0, transparent 50%),
+      repeating-radial-gradient(circle at 50% 40%, transparent 0, transparent 38px, var(--line-contour) 39px, transparent 40px);
+  }
+
+  .app{
+    display:grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    height:100vh;
+    padding:16px;
+    gap:12px;
+  }
+
+  /* ===== SEARCH BAR ===== */
+  .search-bar{
+    display:flex; align-items:center; gap:10px;
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-radius:6px;
+    padding:9px 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .search-bar .sicon{
+    font-family:'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    font-size:13px;
+  }
+  .search-bar input{
+    flex:1;
+    border:none; outline:none;
+    background:transparent;
+    font-family:'Inter', sans-serif;
+    font-size:13px;
+    color: var(--text-primary);
+  }
+  .search-bar input::placeholder{ color: var(--text-dim); }
+  .search-bar .sresults{
+    font-family:'JetBrains Mono', monospace;
+    font-size:9.5px; color: var(--text-dim); letter-spacing:0.5px; white-space:nowrap;
+  }
+
+  /* ===== HEADER ===== */
+  .header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 20px;
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-radius:6px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand .mark{
+    width:36px; height:36px;
+    border:1.5px solid var(--accent-gold);
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+    flex-shrink:0;
+  }
+  .brand .mark::before{
+    content:'';
+    width:8px; height:8px;
+    background: var(--risk-watch);
+    border-radius:50%;
+    box-shadow: 0 0 8px var(--risk-watch-glow), 0 0 14px var(--risk-watch-glow);
+    animation: coreBeat 2.4s ease-in-out infinite;
+  }
+  @keyframes coreBeat{ 0%,100%{ transform:scale(1); opacity:1;} 50%{ transform:scale(1.4); opacity:0.6;} }
+  .brand h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:19px;
+    font-weight:700;
+    letter-spacing:0.5px;
+  }
+  .brand .sub{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px;
+    color: var(--text-muted);
+    letter-spacing:1px;
+    text-transform:uppercase;
+    margin-top:2px;
+  }
+
+  .waveform-wrap{
+    flex:1;
+    max-width:420px;
+    margin:0 28px;
+    height:34px;
+    position:relative;
+  }
+  .waveform-wrap canvas{ width:100%; height:100%; display:block; }
+  .waveform-label{
+    position:absolute; top:-14px; left:0;
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px; letter-spacing:1.5px;
+    color: var(--text-dim); text-transform:uppercase;
+  }
+
+  .system-status{ display:flex; align-items:center; gap:22px; }
+  .status-item{ text-align:right; }
+  .status-item .label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px; color:var(--text-dim); letter-spacing:1.5px; text-transform:uppercase;
+  }
+  .status-item .value{
+    font-family:'JetBrains Mono', monospace;
+    font-size:14px; font-weight:600; margin-top:2px;
+  }
+  .status-item .value.ok{ color: var(--risk-safe); }
+  .status-item .value.warn{ color: var(--risk-watch); }
+  .status-item .value.crit{ color: var(--risk-critical); }
+  .live-dot{
+    width:7px; height:7px; border-radius:50%;
+    background: var(--risk-safe);
+    display:inline-block;
+    box-shadow: 0 0 6px var(--risk-safe-glow);
+    animation: livePulse 1.6s ease-in-out infinite;
+    margin-right:6px;
+  }
+  @keyframes livePulse{ 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  /* ===== ZONE STRIP ===== */
+  .zone-strip{
+    display:grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap:10px;
+  }
+  .zone-card{
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-left:3px solid var(--risk-safe);
+    border-radius:5px;
+    padding:10px 12px;
+    transition: border-left-color 0.4s ease;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  }
+  .zone-card .zname{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:12.5px; font-weight:600;
+  }
+  .zone-card .zroad{
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px; color:var(--text-dim); margin-top:1px; letter-spacing:0.3px;
+  }
+  .zone-card .zbar{
+    height:4px; background: rgba(255,255,255,0.06); border-radius:2px; margin-top:9px; overflow:hidden;
+  }
+  .zone-card .zbar-fill{ height:100%; border-radius:2px; transition: width 0.6s ease, background 0.4s ease; }
+  .zone-card .zscore{
+    display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;
+  }
+  .zone-card .znum{ font-family:'JetBrains Mono', monospace; font-size:15px; font-weight:600; }
+  .zone-card .zstate{
+    font-family:'JetBrains Mono', monospace; font-size:9px; letter-spacing:1px; text-transform:uppercase; font-weight:600;
+  }
+
+  /* ===== MAIN GRID ===== */
+  .main-grid{
+    display:grid;
+    grid-template-columns: 1fr 340px;
+    gap:12px;
+    min-height:0;
+  }
+
+  .map-panel{
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-radius:6px;
+    position:relative;
+    overflow:hidden;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  #map{ width:100%; height:100%; background: var(--bg-void); }
+  .map-title{
+    position:absolute; top:12px; left:12px; z-index:500;
+    background: rgba(10,12,14,0.85);
+    border:1px solid var(--hairline);
+    padding:6px 12px; border-radius:4px;
+    font-family:'JetBrains Mono', monospace; font-size:10px; letter-spacing:1px;
+    color: var(--text-muted); text-transform:uppercase;
+    pointer-events:none;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+  }
+  .map-legend{
+    position:absolute; bottom:12px; left:12px; z-index:500;
+    background: rgba(10,12,14,0.9);
+    border:1px solid var(--hairline);
+    padding:10px 12px; border-radius:4px;
+    display:flex; flex-direction:column; gap:6px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+  }
+  .legend-row{ display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono', monospace; font-size:9.5px; color:var(--text-muted); }
+  .legend-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  .side-panel{
+    display:flex; flex-direction:column; gap:12px; min-height:0;
+  }
+  .panel-box{
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-radius:6px;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .panel-head{
+    padding:11px 14px;
+    border-bottom:1px solid var(--hairline);
+    font-family:'Space Grotesk', sans-serif;
+    font-size:12px; font-weight:600; letter-spacing:0.4px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .panel-head .count{
+    font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--text-dim);
+  }
+
+  .alert-feed{ flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+  .alert-feed::-webkit-scrollbar{ width:5px; }
+  .alert-feed::-webkit-scrollbar-thumb{ background: var(--hairline); border-radius:3px; }
+  .alert-item{
+    background: var(--bg-panel-raised);
+    border-left:2.5px solid var(--risk-safe);
+    border-radius:3px;
+    padding:8px 10px;
+    animation: slideIn 0.35s ease;
+  }
+  @keyframes slideIn{ from{ opacity:0; transform: translateX(8px);} to{opacity:1; transform:translateX(0);} }
+  .alert-item .atop{ display:flex; justify-content:space-between; font-family:'JetBrains Mono', monospace; font-size:9px; color:var(--text-dim); }
+  .alert-item .amsg{ font-size:11.5px; margin-top:3px; color: var(--text-primary); }
+
+  .zone-detail{ flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:10px; }
+  .zone-detail::-webkit-scrollbar{ width:5px; }
+  .zone-detail::-webkit-scrollbar-thumb{ background: var(--hairline); border-radius:3px; }
+  .metric-row{ display:flex; justify-content:space-between; align-items:center; }
+  .metric-row .mlabel{ font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--text-muted); }
+  .metric-row .mval{ font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--text-primary); font-weight:600; }
+
+  /* ===== SENSOR STRIP (footer) ===== */
+  .sensor-footer{
+    display:grid;
+    grid-template-columns: 200px repeat(5, 1fr);
+    gap:12px;
+    background: var(--bg-panel);
+    border:1px solid var(--hairline);
+    border-radius:6px;
+    padding:12px 18px;
+    align-items:center;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .sensor-footer .flabel{
+    font-family:'Space Grotesk', sans-serif; font-size:11.5px; font-weight:600; color:var(--text-muted);
+  }
+  .sensor-metric .slabel{
+    font-family:'JetBrains Mono', monospace; font-size:9px; color:var(--text-dim); letter-spacing:1px; text-transform:uppercase;
+  }
+  .sensor-metric .sval{
+    font-family:'JetBrains Mono', monospace; font-size:16px; font-weight:600; color: var(--text-primary); margin-top:2px;
+  }
+  .sensor-metric .sunit{ font-size:10px; color: var(--text-dim); font-weight:400; margin-left:2px; }
+
+  .hillstation-list{ flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:7px; }
+  .hillstation-list::-webkit-scrollbar{ width:5px; }
+  .hillstation-list::-webkit-scrollbar-thumb{ background: var(--hairline); border-radius:3px; }
+  .hs-item{
+    background: var(--bg-panel-raised);
+    border:1px solid var(--hairline);
+    border-radius:4px;
+    padding:8px 10px;
+  }
+  .hs-top{ display:flex; justify-content:space-between; align-items:baseline; }
+  .hs-name{ font-family:'Space Grotesk', sans-serif; font-size:12px; font-weight:600; color: var(--text-primary); }
+  .hs-elev{ font-family:'JetBrains Mono', monospace; font-size:9px; color: var(--text-dim); }
+  .hs-env{ font-size:10.5px; color: var(--text-muted); margin-top:3px; line-height:1.4; }
+  .hs-item.hidden{ display:none; }
+  .zone-card.hidden{ display:none; }
+
+  .leaflet-container{ background: var(--bg-void) !important; }
+  .zone-marker{ position:relative; }
+  .zone-marker .ring{
+    width:26px; height:26px; border-radius:50%;
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    animation: markerPulse 2s ease-out infinite;
+  }
+  .zone-marker .core{
+    width:12px; height:12px; border-radius:50%;
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    border:2px solid var(--bg-void);
+  }
+  @keyframes markerPulse{ 0%{ transform:translate(-50%,-50%) scale(0.6); opacity:0.7;} 100%{ transform:translate(-50%,-50%) scale(2); opacity:0;} }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>ROCK SHIELD AI</h1>
+        <div class="sub">AI Rockfall Prediction &amp; Alert Network</div>
+      </div>
+    </div>
+
+    <div class="waveform-wrap">
+      <div class="waveform-label">Aggregate Ground Vibration</div>
+      <canvas id="waveform"></canvas>
+    </div>
+
+    <div class="system-status">
+      <div class="status-item">
+        <div class="label">Zones Monitored</div>
+        <div class="value ok" id="zoneCount">6</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Active Alerts</div>
+        <div class="value" id="alertCount">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Network</div>
+        <div class="value ok"><span class="live-dot"></span>LIVE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEARCH -->
+  <div class="search-bar">
+    <span class="sicon">&#128269;</span>
+    <input type="text" id="globalSearch" placeholder="Search monitoring zones or nearby hill stations (e.g. Coonoor, Kateri Cliff, Ooty)...">
+    <span class="sresults" id="searchResultsCount"></span>
+  </div>
+
+  <!-- ZONE STRIP -->
+  <div class="zone-strip" id="zoneStrip"></div>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+    <div class="map-panel">
+      <div class="map-title">Mettupalayam &ndash; Ooty Ghat Road &middot; Nilgiris</div>
+      <div id="map"></div>
+      <div class="map-legend">
+        <div class="legend-row"><span class="legend-dot" style="background:var(--risk-safe)"></span>Low (0&ndash;29)</div>
+        <div class="legend-row"><span class="legend-dot" style="background:var(--risk-watch)"></span>Watch (30&ndash;54)</div>
+        <div class="legend-row"><span class="legend-dot" style="background:var(--risk-high)"></span>High (55&ndash;74)</div>
+        <div class="legend-row"><span class="legend-dot" style="background:var(--risk-critical)"></span>Critical (75+)</div>
+        <div class="legend-row" style="border-top:1px solid var(--hairline); padding-top:6px; margin-top:2px;">Road line colour = live segment risk</div>
+      </div>
+    </div>
+
+    <div class="side-panel">
+      <div class="panel-box" style="flex:0.85;">
+        <div class="panel-head">Alert Feed <span class="count" id="feedCount">0 events</span></div>
+        <div class="alert-feed" id="alertFeed"></div>
+      </div>
+      <div class="panel-box" style="flex:0.75;">
+        <div class="panel-head" id="detailHead">Zone Detail</div>
+        <div class="zone-detail" id="zoneDetail"></div>
+      </div>
+      <div class="panel-box" style="flex:0.8;">
+        <div class="panel-head">Nearby Hill Stations <span class="count" id="hsCount">5 areas</span></div>
+        <div class="hillstation-list" id="hillstationList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SENSOR FOOTER -->
+  <div class="sensor-footer">
+    <div class="flabel">Live sensor readings &middot; <span id="selectedZoneName">Kallar</span></div>
+    <div class="sensor-metric">
+      <div class="slabel">Rainfall</div>
+      <div class="sval" id="fRain">0<span class="sunit">mm/hr</span></div>
+    </div>
+    <div class="sensor-metric">
+      <div class="slabel">Soil Moisture</div>
+      <div class="sval" id="fMoist">0<span class="sunit">%</span></div>
+    </div>
+    <div class="sensor-metric">
+      <div class="slabel">Ground Vibration</div>
+      <div class="sval" id="fVib">0<span class="sunit">mm/s</span></div>
+    </div>
+    <div class="sensor-metric">
+      <div class="slabel">Slope Tilt Δ</div>
+      <div class="sval" id="fTilt">0<span class="sunit">°/hr</span></div>
+    </div>
+    <div class="sensor-metric">
+      <div class="slabel">Wind Speed</div>
+      <div class="sval" id="fWind">0<span class="sunit">km/h</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============ ZONE DEFINITIONS (real ghat-road coordinates) ============ */
+const zones = [
+  { id:'z1', name:'Kallar Base',     road:'KM 3 · Ghat Start',  lat:11.3196, lng:76.9139, slope:32 },
+  { id:'z2', name:'Burliyar',        road:'KM 9 · Hairpin 6',   lat:11.3312, lng:76.8916, slope:41 },
+  { id:'z3', name:'Hillgrove',       road:'KM 15 · Hairpin 14', lat:11.3548, lng:76.8611, slope:47 },
+  { id:'z4', name:'Kateri Cliff',    road:'KM 21 · Hairpin 22', lat:11.3717, lng:76.8402, slope:52 },
+  { id:'z5', name:'Runnymede',       road:'KM 27 · Ketti Valley', lat:11.3833, lng:76.8167, slope:38 },
+  { id:'z6', name:'Coonoor Approach',road:'KM 32 · Final Descent', lat:11.3530, lng:76.7959, slope:29 },
+];
+
+/* mutable live state per zone */
+zones.forEach(z=>{
+  z.rain = 4 + Math.random()*8;
+  z.moist = 30 + Math.random()*20;
+  z.vib = 0.5 + Math.random()*1.5;
+  z.tilt = 0.05 + Math.random()*0.15;
+  z.wind = 6 + Math.random()*14;
+  z.risk = 12 + Math.random()*10;
+  z.history = new Array(40).fill(z.risk);
+});
+
+/* ============ NEARBY HILL STATIONS ============ */
+const hillStations = [
+  { name:'Ooty (Udhagamandalam)', elev:'2,240 m', env:'Shola forests and rolling grasslands; cool subtropical highland climate with frequent mist, cloud cover, and year-round mild temperatures.' },
+  { name:'Coonoor', elev:'1,850 m', env:'Tea estates and eucalyptus groves along steep ridges; slightly warmer and less crowded than Ooty, with moderate monsoon rainfall.' },
+  { name:'Kotagiri', elev:'1,793 m', env:'Oldest Nilgiri hill station; dense native forest and shola-grassland mosaic, cooler microclimate, lower tourist footfall.' },
+  { name:'Wellington', elev:'1,850 m', env:'Military cantonment surrounded by pine and eucalyptus plantations; stable cool climate, well-forested slopes.' },
+  { name:'Yercaud', elev:'1,515 m', env:'Shevaroy Hills coffee and orange orchards; warmer, drier climate than the Nilgiris with lighter monsoon exposure.' },
+];
+
+let selectedZone = zones[0];
+let alertLog = [];
+
+/* ============ RISK ENGINE ============ */
+function riskColor(score){
+  if(score < 30) return getVar('--risk-safe');
+  if(score < 55) return getVar('--risk-watch');
+  if(score < 75) return getVar('--risk-high');
+  return getVar('--risk-critical');
+}
+function riskGlow(score){
+  if(score < 30) return getVar('--risk-safe-glow');
+  if(score < 55) return getVar('--risk-watch-glow');
+  if(score < 75) return getVar('--risk-high-glow');
+  return getVar('--risk-critical-glow');
+}
+function riskLabel(score){
+  if(score < 30) return 'LOW';
+  if(score < 55) return 'WATCH';
+  if(score < 75) return 'HIGH';
+  return 'CRITICAL';
+}
+function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function computeRisk(z){
+  // normalize each factor 0-1
+  const rainN = Math.min(z.rain / 45, 1);
+  const moistN = Math.min(z.moist / 95, 1);
+  const vibN = Math.min(z.vib / 6, 1);
+  const tiltN = Math.min(z.tilt / 1.2, 1);
+  const slopeN = Math.min(z.slope / 60, 1);
+  const windN = Math.min(z.wind / 45, 1);
+  // weighted ML-style score
+  const raw = (0.27*rainN + 0.19*moistN + 0.22*vibN + 0.13*tiltN + 0.07*slopeN + 0.12*windN) * 100;
+  return Math.max(2, Math.min(99, raw));
+}
+
+/* ============ DATA SIMULATION ============ */
+function stepSimulation(){
+  zones.forEach(z=>{
+    // random walk
+    z.rain = clamp(z.rain + (Math.random()-0.48)*3, 0, 60);
+    z.moist = clamp(z.moist + (Math.random()-0.48)*3, 10, 98);
+    z.vib = clamp(z.vib + (Math.random()-0.48)*0.6, 0.1, 8);
+    z.tilt = clamp(z.tilt + (Math.random()-0.47)*0.08, 0.01, 1.5);
+    z.wind = clamp(z.wind + (Math.random()-0.48)*2.5, 1, 55);
+
+    // occasional storm spike on a random zone for demo drama
+    if(Math.random() < 0.012){
+      z.rain += 20 + Math.random()*15;
+      z.vib += 2 + Math.random()*2;
+      z.wind += 10 + Math.random()*12;
+    }
+
+    const prevRisk = z.risk;
+    z.risk = z.risk*0.55 + computeRisk(z)*0.45; // smoothing
+    z.history.push(z.risk);
+    if(z.history.length > 40) z.history.shift();
+
+    // threshold crossing -> alert
+    const prevLabel = riskLabel(prevRisk);
+    const newLabel = riskLabel(z.risk);
+    if(newLabel !== prevLabel && (newLabel === 'HIGH' || newLabel === 'CRITICAL')){
+      pushAlert(z, newLabel);
+    }
+  });
+}
+function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+
+function pushAlert(z, label){
+  const time = new Date().toLocaleTimeString('en-IN', {hour12:false});
+  const msg = label === 'CRITICAL'
+    ? `${z.name}: risk escalated to CRITICAL — evacuate stretch, close road`
+    : `${z.name}: risk escalated to HIGH — dispatch inspection team`;
+  alertLog.unshift({ time, msg, label });
+  if(alertLog.length > 25) alertLog.pop();
+  renderAlerts();
+  document.getElementById('alertCount').textContent = alertLog.filter(a=>a.label==='CRITICAL'||a.label==='HIGH').length;
+  document.getElementById('alertCount').className = 'value ' + (label==='CRITICAL' ? 'crit':'warn');
+}
+
+/* ============ MAP ============ */
+const map = L.map('map', {
+  zoomControl:false,
+  attributionControl:true,
+  scrollWheelZoom:true,
+}).setView([11.35, 76.83], 11.4);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, minZoom:9,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+L.control.zoom({position:'bottomright'}).addTo(map);
+
+const routeSegments = [];
+for(let i=0; i<zones.length-1; i++){
+  const a = zones[i], b = zones[i+1];
+  const seg = L.polyline([[a.lat,a.lng],[b.lat,b.lng]], {
+    color:'#C9AE7E', weight:4, opacity:0.75
+  }).addTo(map);
+  routeSegments.push({ line:seg, a, b });
+}
+function renderRouteSegments(){
+  routeSegments.forEach(s=>{
+    const riskLevel = Math.max(s.a.risk, s.b.risk);
+    const c = riskColor(riskLevel);
+    s.line.setStyle({ color:c, opacity: riskLevel > 55 ? 0.9 : 0.7 });
+  });
+}
+renderRouteSegments();
+
+const markers = {};
+zones.forEach(z=>{
+  const icon = L.divIcon({
+    className:'', html:`
+      <div class="zone-marker">
+        <div class="ring" style="background:${riskColor(z.risk)}" id="ring-${z.id}"></div>
+        <div class="core" style="background:${riskColor(z.risk)}; box-shadow:0 0 10px ${riskGlow(z.risk)}" id="core-${z.id}"></div>
+      </div>`,
+    iconSize:[26,26], iconAnchor:[13,13]
+  });
+  const m = L.marker([z.lat, z.lng], {icon}).addTo(map);
+  m.on('click', ()=>{ selectedZone = z; renderDetail(); });
+  markers[z.id] = m;
+});
+
+/* ============ RENDER: ZONE STRIP ============ */
+function renderZoneStrip(){
+  const strip = document.getElementById('zoneStrip');
+  strip.innerHTML = zones.map(z=>{
+    const c = riskColor(z.risk);
+    return `
+    <div class="zone-card" style="border-left-color:${c}" onclick="selectZone('${z.id}')">
+      <div class="zname">${z.name}</div>
+      <div class="zroad">${z.road}</div>
+      <div class="zbar"><div class="zbar-fill" style="width:${z.risk}%; background:${c}"></div></div>
+      <div class="zscore">
+        <div class="znum" style="color:${c}">${z.risk.toFixed(0)}</div>
+        <div class="zstate" style="color:${c}">${riskLabel(z.risk)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+window.selectZone = function(id){
+  selectedZone = zones.find(z=>z.id===id);
+  renderDetail();
+  map.panTo([selectedZone.lat, selectedZone.lng]);
+};
+
+/* ============ RENDER: MARKERS ============ */
+function renderMarkers(){
+  zones.forEach(z=>{
+    const c = riskColor(z.risk);
+    const ring = document.getElementById('ring-'+z.id);
+    const core = document.getElementById('core-'+z.id);
+    if(ring){ ring.style.background = c; }
+    if(core){ core.style.background = c; core.style.boxShadow = `0 0 10px ${riskGlow(z.risk)}`; }
+  });
+}
+
+/* ============ RENDER: ALERT FEED ============ */
+function renderAlerts(){
+  const feed = document.getElementById('alertFeed');
+  document.getElementById('feedCount').textContent = alertLog.length + ' events';
+  if(alertLog.length === 0){
+    feed.innerHTML = `<div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-dim); padding:14px 4px;">No threshold crossings yet. Monitoring nominal.</div>`;
+    return;
+  }
+  feed.innerHTML = alertLog.map(a=>{
+    const c = a.label === 'CRITICAL' ? 'var(--risk-critical)' : 'var(--risk-high)';
+    return `<div class="alert-item" style="border-left-color:${c}">
+      <div class="atop"><span>${a.time}</span><span style="color:${c}">${a.label}</span></div>
+      <div class="amsg">${a.msg}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ============ RENDER: NEARBY HILL STATIONS ============ */
+function renderHillStations(){
+  const list = document.getElementById('hillstationList');
+  list.innerHTML = hillStations.map((h,i)=>`
+    <div class="hs-item" data-hs="${i}">
+      <div class="hs-top"><span class="hs-name">${h.name}</span><span class="hs-elev">${h.elev}</span></div>
+      <div class="hs-env">${h.env}</div>
+    </div>`).join('');
+}
+
+/* ============ SEARCH: ZONES & HILL STATIONS ============ */
+function runSearch(){
+  const q = document.getElementById('globalSearch').value.trim().toLowerCase();
+  let matches = 0;
+
+  document.querySelectorAll('.zone-card').forEach((card, i)=>{
+    const z = zones[i];
+    const hay = (z.name + ' ' + z.road).toLowerCase();
+    const show = !q || hay.includes(q);
+    card.classList.toggle('hidden', !show);
+    if(show) matches++;
+  });
+
+  document.querySelectorAll('.hs-item').forEach(el=>{
+    const idx = +el.getAttribute('data-hs');
+    const h = hillStations[idx];
+    const hay = (h.name + ' ' + h.env).toLowerCase();
+    const show = !q || hay.includes(q);
+    el.classList.toggle('hidden', !show);
+    if(show) matches++;
+  });
+
+  document.getElementById('searchResultsCount').textContent = q ? `${matches} match${matches===1?'':'es'}` : '';
+}
+document.getElementById('globalSearch').addEventListener('input', runSearch);
+
+/* ============ RENDER: ZONE DETAIL ============ */
+function renderDetail(){
+  const z = selectedZone;
+  document.getElementById('detailHead').innerHTML = `${z.name} <span class="count">${z.road}</span>`;
+  const c = riskColor(z.risk);
+  document.getElementById('zoneDetail').innerHTML = `
+    <div style="text-align:center; padding:6px 0;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:34px; font-weight:700; color:${c}">${z.risk.toFixed(0)}</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1.5px; color:${c}">${riskLabel(z.risk)} RISK</div>
+    </div>
+    <div class="metric-row"><span class="mlabel">Rainfall</span><span class="mval">${z.rain.toFixed(1)} mm/hr</span></div>
+    <div class="metric-row"><span class="mlabel">Soil Moisture</span><span class="mval">${z.moist.toFixed(0)} %</span></div>
+    <div class="metric-row"><span class="mlabel">Ground Vibration</span><span class="mval">${z.vib.toFixed(2)} mm/s</span></div>
+    <div class="metric-row"><span class="mlabel">Slope Tilt Δ</span><span class="mval">${z.tilt.toFixed(2)} °/hr</span></div>
+    <div class="metric-row"><span class="mlabel">Wind Speed</span><span class="mval">${z.wind.toFixed(1)} km/h</span></div>
+    <div class="metric-row"><span class="mlabel">Static Slope Angle</span><span class="mval">${z.slope}°</span></div>
+  `;
+  document.getElementById('selectedZoneName').textContent = z.name;
+  document.getElementById('fRain').innerHTML = z.rain.toFixed(1)+'<span class="sunit">mm/hr</span>';
+  document.getElementById('fMoist').innerHTML = z.moist.toFixed(0)+'<span class="sunit">%</span>';
+  document.getElementById('fVib').innerHTML = z.vib.toFixed(2)+'<span class="sunit">mm/s</span>';
+  document.getElementById('fTilt').innerHTML = z.tilt.toFixed(2)+'<span class="sunit">°/hr</span>';
+  document.getElementById('fWind').innerHTML = z.wind.toFixed(1)+'<span class="sunit">km/h</span>';
+}
+
+/* ============ WAVEFORM ============ */
+const wfCanvas = document.getElementById('waveform');
+const wfCtx = wfCanvas.getContext('2d');
+function resizeCanvas(){
+  wfCanvas.width = wfCanvas.clientWidth * devicePixelRatio;
+  wfCanvas.height = wfCanvas.clientHeight * devicePixelRatio;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function drawWaveform(){
+  const w = wfCanvas.width, h = wfCanvas.height;
+  wfCtx.clearRect(0,0,w,h);
+  const avgVib = zones.reduce((s,z)=>s+z.vib,0)/zones.length;
+  const maxRisk = Math.max(...zones.map(z=>z.risk));
+  const color = riskColor(maxRisk);
+
+  wfCtx.strokeStyle = color;
+  wfCtx.lineWidth = 1.5 * devicePixelRatio;
+  wfCtx.beginPath();
+  const points = 80;
+  for(let i=0;i<points;i++){
+    const x = (i/points) * w;
+    const t = performance.now()/300 + i*0.35;
+    const amp = (avgVib/8) * (h*0.32);
+    const y = h/2 + Math.sin(t) * amp * (0.6 + 0.4*Math.sin(i*0.2 + performance.now()/900));
+    if(i===0) wfCtx.moveTo(x,y); else wfCtx.lineTo(x,y);
+  }
+  wfCtx.stroke();
+}
+
+function waveformLoop(){
+  drawWaveform();
+  requestAnimationFrame(waveformLoop);
+}
+waveformLoop();
+
+/* ============ MAIN LOOP ============ */
+function tick(){
+  stepSimulation();
+  renderZoneStrip();
+  renderMarkers();
+  renderRouteSegments();
+  renderDetail();
+  runSearch();
+}
+renderZoneStrip();
+renderDetail();
+renderAlerts();
+renderHillStations();
+setInterval(tick, 2600);
+</script>
+
+</body>
+</html>
